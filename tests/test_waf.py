@@ -418,6 +418,40 @@ def test_waf_regex_pattern_set_tags_and_not_found(wafv2):
     assert exc.value.response["Error"]["Code"] == "WAFNonexistentItemException"
 
 
+def test_waf_web_acl_rule_can_reference_regex_pattern_set(wafv2):
+    regex = wafv2.create_regex_pattern_set(
+        Name="ref-regex",
+        Scope="CLOUDFRONT",
+        RegularExpressionList=[{"RegexString": "^/[^/]+/(img|css|scripts)/"}],
+    )
+    arn = regex["Summary"]["ARN"]
+    assert ":global/regexpatternset/ref-regex/" in arn
+
+    rule = {
+        "Name": "static-resources",
+        "Priority": 0,
+        "Statement": {
+            "RegexPatternSetReferenceStatement": {
+                "ARN": arn,
+                "FieldToMatch": {"UriPath": {}},
+                "TextTransformations": [{"Priority": 0, "Type": "NONE"}],
+            }
+        },
+        "Action": {"Allow": {}},
+        "VisibilityConfig": {"SampledRequestsEnabled": True, "CloudWatchMetricsEnabled": False, "MetricName": "static"},
+    }
+    acl = wafv2.create_web_acl(
+        Name="ref-acl",
+        Scope="CLOUDFRONT",
+        DefaultAction={"Block": {}},
+        Rules=[rule],
+        VisibilityConfig={"SampledRequestsEnabled": True, "CloudWatchMetricsEnabled": False, "MetricName": "ref"},
+    )
+    got = wafv2.get_web_acl(Name="ref-acl", Scope="CLOUDFRONT", Id=acl["Summary"]["Id"])
+    stmt = got["WebACL"]["Rules"][0]["Statement"]["RegexPatternSetReferenceStatement"]
+    assert stmt["ARN"] == arn
+
+
 def test_waf_rule_group_crud(wafv2):
     resp = wafv2.create_rule_group(
         Name="test-rg",
